@@ -1,0 +1,772 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Atendimentos</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0b0c;
+            color: #ffffff;
+            /* overflow: hidden apenas no desktop — mobile precisa de scroll */
+            overflow: hidden;
+        }
+
+        /* No mobile o body precisa rolar */
+        @media (max-width: 767px) {
+            body { overflow: auto; }
+        }
+
+        /* Glassmorphism Classes */
+        .glass-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .glass-hover:hover {
+            box-shadow: 0 10px 40px 0 rgba(0, 0, 0, 0.5);
+            transform: translateY(-2px);
+            transition: all 0.3s ease;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+        .file-drop-area {
+            border: 1px solid transparent;
+            background: rgba(255,255,255,0.02);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .file-drop-area:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .file-drop-area.dragover {
+            border-color: rgba(14, 165, 233, 0.4);
+            background: rgba(14, 165, 233, 0.08);
+            box-shadow: 0 0 15px rgba(14,165,233,0.1) inset;
+        }
+
+        .neon-text {
+            background: linear-gradient(90deg, #f97316, #e11d48);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        /* Animação do hamburger — as 3 linhas viram X */
+        .ham-line {
+            display: block;
+            width: 22px;
+            height: 2px;
+            background: rgba(255,255,255,0.8);
+            border-radius: 2px;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        .ham-open .ham-line:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+        .ham-open .ham-line:nth-child(2) { opacity: 0; transform: scaleX(0); }
+        .ham-open .ham-line:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+        /* Sidebar mobile — desliza da esquerda */
+        #sidebar {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        /* Em mobile, sidebar começa escondido */
+        #sidebar.sidebar-closed {
+            transform: translateX(-100%);
+        }
+        /* Em desktop (md+), sidebar sempre visível e ocupa espaço no layout */
+        @media (min-width: 768px) {
+            #sidebar {
+                position: relative !important;
+                transform: translateX(0) !important;
+                flex-shrink: 0;
+            }
+        }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row h-screen w-full">
+
+    <!-- Background Effects -->
+    <div class="fixed inset-0 pointer-events-none z-0">
+        <div class="absolute rounded-full bg-gradient-to-br from-orange-500/10 to-rose-500/10 blur-[100px]" style="width: 400px; height: 400px; left: 10%; top: 20%;"></div>
+        <div class="absolute rounded-full bg-gradient-to-br from-emerald-500/10 to-teal-500/10 blur-[100px]" style="width: 300px; height: 300px; right: 10%; bottom: 10%;"></div>
+    </div>
+
+    <!-- =============================================
+         MOBILE TOPBAR (visível apenas em telas < md)
+         Mostra logo + botão hamburger
+    ============================================== -->
+    <div class="flex md:hidden items-center justify-between px-4 py-3 border-b border-white/10 glass-card z-30 flex-shrink-0">
+        <!-- Logo compacta -->
+        <img src="{% static 'img/dmais_logo_transparent.png' %}" alt="D MAIS SOLUÇÕES" class="h-8 w-auto object-contain drop-shadow-[0_0_10px_rgba(249,115,22,0.4)]">
+        <!-- Botão Hamburger -->
+        <button id="hamburger-btn" class="flex flex-col gap-[5px] p-2 rounded-lg hover:bg-white/10 transition-colors" aria-label="Abrir menu">
+            <span class="ham-line"></span>
+            <span class="ham-line"></span>
+            <span class="ham-line"></span>
+        </button>
+    </div>
+
+    <!-- Overlay escurecido (fecha o sidebar ao clicar fora) -->
+    <div id="sidebar-overlay" class="fixed inset-0 bg-black/60 z-30 opacity-0 pointer-events-none md:hidden backdrop-blur-sm"></div>
+
+    <!-- Sidebar — no desktop é fixo. No mobile é um drawer que desliza -->
+    <aside id="sidebar" class="fixed md:relative top-0 left-0 h-full w-64 border-r border-white/10 glass-card z-40 flex flex-col justify-between sidebar-closed md:translate-x-0 md:flex-shrink-0">
+        <div class="p-6">
+            <!-- Logo Section -->
+            <div class="mb-10 flex py-2 items-center justify-start xl:-ml-2">
+                <img src="{% static 'img/dmais_logo_transparent.png' %}" alt="D MAIS SOLUÇÕES" class="h-14 w-auto object-contain drop-shadow-[0_0_15px_rgba(249,115,22,0.4)] hover:drop-shadow-[0_0_20px_rgba(249,115,22,0.6)] hover:scale-105 transition-all duration-300">
+            </div>
+
+            <!-- Navigation -->
+            <nav class="space-y-2">
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white font-medium transition-all shadow-lg shadow-orange-500/20">
+                    <i data-lucide="layout-dashboard" class="w-5 h-5 text-orange-400"></i> Início
+                </a>
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-white/50 hover:text-white hover:bg-white/5 transition-all">
+                    <i data-lucide="file-text" class="w-5 h-5"></i> Resumo
+                </a>
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-white/50 hover:text-white hover:bg-white/5 transition-all">
+                    <i data-lucide="users" class="w-5 h-5"></i> Técnicos
+                </a>
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-white/50 hover:text-white hover:bg-white/5 transition-all">
+                    <i data-lucide="map-pin" class="w-5 h-5"></i> Cidades
+                </a>
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-white/50 hover:text-white hover:bg-white/5 transition-all">
+                    <i data-lucide="activity" class="w-5 h-5"></i> Atividades
+                </a>
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-white/50 hover:text-white hover:bg-white/5 transition-all">
+                    <i data-lucide="trending-up" class="w-5 h-5"></i> Projeção
+                </a>
+            </nav>
+        </div>
+
+        <div class="p-6">
+            <div class="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center font-bold text-sm shadow-lg">F</div>
+                <div class="flex-1 overflow-hidden">
+                    <p class="text-xs text-white/60">Olá, Gestor!</p>
+                    <p class="text-sm font-semibold truncate">Flávio Reis</p>
+                </div>
+            </div>
+            <a href="#" class="flex items-center gap-2 mt-4 px-4 text-sm text-white/50 hover:text-white/90 transition-colors">
+                <i data-lucide="log-out" class="w-4 h-4"></i> Sair
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content — no mobile ocupa tela toda -->
+    <main class="flex-1 h-screen overflow-y-auto relative z-10">
+        <div class="max-w-[1600px] mx-auto p-4 md:p-6 lg:p-10 space-y-6 md:space-y-8">
+            
+            <!-- Premium SaaS Top Navbar (Replaces Header & Upload Area) -->
+            <header class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6 bg-white/[0.02] border border-white/5 rounded-2xl p-2 pr-3 pl-4 shadow-lg shadow-black/20 backdrop-blur-xl">
+                
+                <!-- Title & Branding -->
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-orange-500/20 to-rose-500/20 border border-orange-500/30 flex items-center justify-center shadow-inner">
+                        <i data-lucide="activity" class="w-4 h-4 text-orange-400"></i>
+                    </div>
+                    <div class="hidden sm:block">
+                        <h1 class="text-[13px] font-semibold text-white/90 tracking-wide">Dashboard de Operações</h1>
+                        <p class="text-[10px] text-white/40 font-medium">Visão Diária</p>
+                    </div>
+                </div>
+
+                <!-- Central Upload Controls —
+                     Desktop: linha única com os dois uploads + botão
+                     Mobile: empilha verticalmente, largura total -->
+                <div class="flex flex-col md:flex-row md:items-center gap-2 flex-1 md:justify-center md:max-w-2xl w-full md:px-4">
+                    <!-- Linha: dois dropzones + separador + botão -->
+                    <div class="flex items-center gap-2 w-full md:w-auto">
+                        <!-- Dropzone Acerta -->
+                        <div class="relative group flex-1 md:w-44 md:flex-none min-w-0">
+                            <input type="file" id="acerta_file" accept=".xlsx, .xls" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
+                            <div class="file-drop-area h-9 px-3 rounded-lg bg-white/5 border border-white/10 hover:border-orange-500/30 hover:bg-white/10 transition-all flex items-center justify-between gap-2 overflow-hidden">
+                                <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5 text-orange-400 flex-shrink-0"></i>
+                                <span class="text-[11px] font-medium text-white/60 truncate flex-1" id="acerta-filename-label">Planilha Acerta</span>
+                                <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-orange-400 opacity-0 transition-opacity flex-shrink-0" id="acerta-filename-icon"></i>
+                            </div>
+                        </div>
+
+                        <i data-lucide="plus" class="w-3 h-3 text-white/20 flex-shrink-0"></i>
+
+                        <!-- Dropzone Loga -->
+                        <div class="relative group flex-1 md:w-44 md:flex-none min-w-0">
+                            <input type="file" id="loga_file" accept=".xlsx, .xls" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
+                            <div class="file-drop-area h-9 px-3 rounded-lg bg-white/5 border border-white/10 hover:border-emerald-500/30 hover:bg-white/10 transition-all flex items-center justify-between gap-2 overflow-hidden">
+                                <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5 text-emerald-400 flex-shrink-0"></i>
+                                <span class="text-[11px] font-medium text-white/60 truncate flex-1" id="loga-filename-label">Planilha Loga</span>
+                                <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400 opacity-0 transition-opacity flex-shrink-0" id="loga-filename-icon"></i>
+                            </div>
+                        </div>
+
+                        <div class="w-[1px] h-5 bg-white/10 mx-1 flex-shrink-0 hidden md:block"></div>
+
+                        <!-- Process Button -->
+                        <button id="btn-process" class="h-9 px-4 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-medium text-[11px] shadow-md hover:shadow-orange-500/25 transition-all flex items-center gap-2 border border-orange-400/20 active:scale-95 group flex-shrink-0">
+                            <div class="loading-spinner hidden w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                            <span class="btn-text flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5 group-hover:-rotate-180 transition-transform duration-500"></i> Processar</span>
+                        </button>
+                    </div>
+
+                </div>
+
+                <!-- Right Profile Controls -->
+                <div class="flex items-center gap-3 pl-4 border-l border-white/10">
+                    <button class="relative w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors">
+                        <i data-lucide="bell" class="w-4 h-4"></i>
+                        <span class="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full border border-[#0B1120]"></span>
+                    </button>
+                    <div class="flex items-center gap-2 cursor-pointer group">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-orange-600 to-rose-500 p-[1px]">
+                            <div class="w-full h-full rounded-full bg-[#0B1120] flex items-center justify-center">
+                                <span class="text-xs font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-rose-400">FR</span>
+                            </div>
+                        </div>
+                        <i data-lucide="chevron-down" class="w-3 h-3 text-white/40 group-hover:text-white transition-colors"></i>
+                    </div>
+                </div>
+            </header>
+
+            <!-- SECTION 2: Metrics — 1 col mobile, 2 tablet, 4 desktop -->
+            <section class="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                <!-- Ordens em campo -->
+                <div class="glass-card rounded-2xl p-5 glass-hover flex flex-col justify-between">
+                    <div class="flex items-center gap-2 mb-3">
+                        <div class="p-1.5 md:p-2 rounded-xl bg-orange-500/20 border border-orange-500/30"><i data-lucide="file-text" class="w-4 h-4 md:w-5 md:h-5 text-orange-400"></i></div>
+                        <h3 class="text-xs md:text-sm font-medium text-white/70 leading-tight">Ordens em Campo</h3>
+                    </div>
+                    <div>
+                        <!-- Tamanho de fonte responsivo: menor em mobile para não vazar -->
+                        <p class="text-xl md:text-3xl font-bold tracking-tight mb-2" id="val-ordens">-</p>
+                        <div class="w-full bg-white/5 border border-white/10 rounded-full h-1.5 mb-1.5 hidden overflow-hidden" id="ordens-progress-bar">
+                            <div class="bg-gradient-to-r from-emerald-400 to-emerald-500 h-1.5 rounded-full transition-all duration-1000" id="ordens-progress-fill" style="width: 0%"></div>
+                        </div>
+                        <div class="flex justify-between items-center text-[10px] hidden" id="ordens-stats">
+                            <span class="text-emerald-400 font-medium" id="val-ordens-conc">0 Concluídas</span>
+                            <span class="text-orange-400 font-medium" id="val-ordens-pend">0 Pendentes</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Valor Total -->
+                <div class="glass-card rounded-2xl p-5 glass-hover flex flex-col justify-between">
+                    <div class="flex items-center gap-2 mb-3">
+                        <div class="p-1.5 md:p-2 rounded-xl bg-emerald-500/20 border border-emerald-500/30"><i data-lucide="dollar-sign" class="w-4 h-4 md:w-5 md:h-5 text-emerald-400"></i></div>
+                        <h3 class="text-xs md:text-sm font-medium text-white/70 leading-tight">Valor Total</h3>
+                    </div>
+                    <div>
+                        <!-- Fonte responsiva: evita overflow em valores longos como R$ 11.000,00 -->
+                        <p class="text-base md:text-3xl font-bold tracking-tight text-emerald-400 mb-2 truncate" id="val-total">R$ 0,00</p>
+                        <div class="w-full bg-white/5 border border-white/10 rounded-full h-1.5 mb-1.5 hidden overflow-hidden" id="revenue-progress-bar">
+                            <div class="bg-gradient-to-r from-emerald-400 to-emerald-500 h-1.5 rounded-full transition-all duration-1000" id="revenue-progress-fill" style="width: 0%"></div>
+                        </div>
+                        <div class="flex justify-between items-center text-[10px] hidden" id="revenue-stats">
+                            <span class="text-emerald-400 font-medium" id="val-total-conc">R$ 0 Conc.</span>
+                            <span class="text-orange-400 font-medium" id="val-total-pend">R$ 0 Pend.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Projeção -->
+                <div class="glass-card rounded-2xl p-5 glass-hover">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="p-2 rounded-xl bg-amber-500/20 border border-amber-500/30"><i data-lucide="target" class="w-5 h-5 text-amber-400"></i></div>
+                        <h3 class="text-sm font-medium text-white/70">Projeção do Dia</h3>
+                    </div>
+                    <div class="flex items-end gap-2">
+                        <p class="text-base md:text-3xl font-bold tracking-tight truncate" id="val-projecao">R$ 0,00</p>
+                    </div>
+                </div>
+
+                <!-- Valor Concluído -->
+                <div class="glass-card rounded-2xl p-5 glass-hover">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="p-2 rounded-xl bg-purple-500/20 border border-purple-500/30"><i data-lucide="check-circle" class="w-5 h-5 text-purple-400"></i></div>
+                        <h3 class="text-sm font-medium text-white/70">Técnicos Ativos</h3>
+                    </div>
+                    <div class="flex items-end justify-between">
+                        <p class="text-xl md:text-3xl font-bold tracking-tight" id="val-techs">-</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 3: Main Charts — empilha em mobile -->
+            <section class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                <!-- Dist Technician -->
+                <div class="glass-card rounded-2xl p-4 md:p-6 h-[360px] md:h-[340px] flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-base font-semibold flex items-center gap-2"><div class="w-1 h-4 bg-gradient-to-b from-orange-400 to-rose-400 rounded-full"></div> Distribuição por Técnico</h3>
+                        <span class="text-[10px] bg-white/5 border border-white/10 px-2 py-0.5 rounded text-white/50 font-medium tracking-wider shadow-inner">R$ | Volume</span>
+                    </div>
+                    <div class="flex-1 relative w-full h-full">
+                        <canvas id="chart-techs"></canvas>
+                    </div>
+                </div>
+
+                <!-- Dist City -->
+                <div class="glass-card rounded-2xl p-4 md:p-6 h-[360px] md:h-[340px] flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-base font-semibold flex items-center gap-2"><div class="w-1 h-4 bg-gradient-to-b from-purple-400 to-pink-400 rounded-full"></div> Distribuição por Cidade</h3>
+                        <span class="text-[10px] bg-white/5 border border-white/10 px-2 py-0.5 rounded text-white/50 font-medium tracking-wider shadow-inner">R$ | Volume</span>
+                    </div>
+                    <div class="flex-1 relative w-full h-full">
+                        <canvas id="chart-cities"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 4: Advanced Area — empilha em mobile, 12 colunas no desktop -->
+            <section class="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 pb-12">
+                <!-- Pie Chart Activity -->
+                <div class="lg:col-span-3 glass-card rounded-2xl p-4 md:p-6 h-[300px] md:h-[320px] flex flex-col">
+                    <div class="flex justify-between items-center mb-4 relative z-20">
+                        <h3 class="text-base font-semibold flex items-center gap-2">Tipos de Atividade</h3>
+                        <div class="relative">
+                            <input type="hidden" id="activity-filter" value="all">
+                            <button id="custom-select-btn" class="bg-[#0b0b0c]/80 backdrop-blur border border-white/20 hover:border-orange-500/50 text-white/90 text-xs text-left rounded-md pl-3 pr-8 py-1.5 outline-none cursor-pointer transition-all flex items-center gap-2 focus:ring-2 focus:ring-orange-500/30 min-w-[125px] justify-between shadow-sm">
+                                <span id="custom-select-text">Todos</span>
+                                <i data-lucide="chevron-down" class="w-3 h-3 text-white/50 absolute right-2 pointer-events-none transition-transform duration-200" id="custom-select-arrow"></i>
+                            </button>
+                            <!-- Dropdown Menu -->
+                            <div id="custom-select-menu" class="absolute right-0 top-full mt-2 w-full bg-[#1a1a1c] border border-white/10 rounded-lg shadow-xl shadow-black overflow-hidden opacity-0 pointer-events-none transform -translate-y-2 transition-all duration-200 z-50">
+                                <ul class="flex flex-col py-1">
+                                    <li>
+                                        <button class="w-full text-left px-3 py-2 text-xs text-white/80 hover:bg-orange-500/15 hover:text-orange-400 transition-colors flex items-center justify-between group" data-value="all">
+                                            Todos <i data-lucide="check" class="w-3 h-3 text-orange-500 opacity-100 transition-opacity" id="check-all"></i>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button class="w-full text-left px-3 py-2 text-xs text-white/80 hover:bg-orange-500/15 hover:text-orange-400 transition-colors flex items-center justify-between group" data-value="pend">
+                                            Pendentes <i data-lucide="check" class="w-3 h-3 text-orange-500 opacity-0 transition-opacity" id="check-pend"></i>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button class="w-full text-left px-3 py-2 text-xs text-white/80 hover:bg-orange-500/15 hover:text-orange-400 transition-colors flex items-center justify-between group" data-value="conc">
+                                            Concluídos <i data-lucide="check" class="w-3 h-3 text-orange-500 opacity-0 transition-opacity" id="check-conc"></i>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex-1 relative w-full h-full flex items-center justify-center">
+                        <canvas id="chart-activities"></canvas>
+                        <div class="absolute inset-0 flex items-center justify-center pointer-events-none mt-2 pr-[80px]">
+                            <div class="text-center flex flex-col items-center justify-center">
+                                <span class="block text-3xl font-bold text-white drop-shadow-md" id="pie-total">0</span>
+                                <span class="text-[10px] text-white/60 font-medium uppercase tracking-widest mt-1">Ordens</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fila Table -->
+                <div class="lg:col-span-5 glass-card rounded-2xl p-4 md:p-6 h-[300px] md:h-[320px] flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-base font-semibold">Fila de Atendimentos</h3>
+                        <a href="#" class="text-xs text-orange-400 hover:text-orange-300">Ver Todas &rarr;</a>
+                    </div>
+                    <div class="flex-1 overflow-y-auto pr-2">
+                        <table class="w-full text-left text-sm text-white/70">
+                            <thead class="text-xs uppercase text-white/40 sticky top-0 bg-[#0b0b0c]/80 backdrop-blur pb-2 z-10">
+                                <tr>
+                                    <th class="py-2 font-medium">OS</th>
+                                    <th class="py-2 font-medium">Técnico</th>
+                                    <th class="py-2 font-medium">Cidade</th>
+                                    <th class="py-2 font-medium">Atividade</th>
+                                    <th class="py-2 font-medium text-right">Valor</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fila-body" class="divide-y divide-white/5">
+                                <!-- Dynamic rows -->
+                                <tr><td colspan="5" class="text-center py-8 text-white/30">Nenhum dado processado.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Line Chart Projection -->
+                <div class="lg:col-span-4 glass-card rounded-2xl p-4 md:p-6 h-[270px] md:h-[320px] flex flex-col">
+                    <h3 class="text-base font-semibold mb-2">Projeção do Dia (R$)</h3>
+                    <div class="flex-1 relative w-full h-full mt-2">
+                        <canvas id="chart-timeline"></canvas>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- App Logic -->
+    <script>
+        // ============================================
+        // HAMBURGER MENU — Abertura/Fechamento Sidebar
+        // ============================================
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        const hamburgerBtn = document.getElementById('hamburger-btn');
+
+        function openSidebar() {
+            sidebar.classList.remove('sidebar-closed');
+            overlay.classList.remove('opacity-0', 'pointer-events-none');
+            hamburgerBtn.classList.add('ham-open');
+            document.body.style.overflow = 'hidden'; // Impede scroll do body quando menu aberto
+        }
+
+        function closeSidebar() {
+            sidebar.classList.add('sidebar-closed');
+            overlay.classList.add('opacity-0', 'pointer-events-none');
+            hamburgerBtn.classList.remove('ham-open');
+            document.body.style.overflow = ''; // Restaura scroll
+        }
+
+        if (hamburgerBtn) {
+            hamburgerBtn.addEventListener('click', () => {
+                sidebar.classList.contains('sidebar-closed') ? openSidebar() : closeSidebar();
+            });
+        }
+
+        // Fecha sidebar ao clicar no overlay
+        if (overlay) overlay.addEventListener('click', closeSidebar);
+
+        // Fecha sidebar ao clicar em item de menu (mobile)
+        sidebar.querySelectorAll('nav a').forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth < 768) closeSidebar();
+            });
+        });
+
+        lucide.createIcons();
+
+        // Colors
+        const chartColors = ['#f97316', '#10b981', '#e11d48', '#f59e0b', '#ec4899', '#64748b'];
+        
+        // Globals for Chart instances
+        let techChart, cityChart, actChart, timeChart;
+
+        function initCharts() {
+            Chart.register(ChartDataLabels);
+            Chart.defaults.color = 'rgba(255, 255, 255, 0.5)';
+            Chart.defaults.font.family = "'Inter', sans-serif";
+            
+            // Detecta mobile para adaptar datalabels
+            const isMobile = window.innerWidth < 768;
+
+            const techCtx = document.getElementById('chart-techs').getContext('2d');
+            techChart = new Chart(techCtx, {
+                type: 'bar',
+                data: { labels: [], datasets: [{ data: [], customVolumes: [], backgroundColor: chartColors[0], borderRadius: 6 }] },
+                options: { 
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false, 
+                    layout: { padding: { right: isMobile ? 80 : 120 } },
+                    plugins: { 
+                        legend: { display: false },
+                        datalabels: {
+                            color: '#ffffff',
+                            anchor: 'end', align: 'end', offset: 6,
+                            font: { size: isMobile ? 9 : 10, weight: 'bold' },
+                            textShadowColor: 'rgba(0,0,0,0.7)', textShadowBlur: 4,
+                            formatter: (val, ctx) => {
+                                const vol = ctx.dataset.customVolumes[ctx.dataIndex];
+                                if (isMobile) return `${Math.round(val).toLocaleString('pt-BR')} | ${vol}`;
+                                return `${fR(val)} | ${vol}`;
+                            }
+                        }
+                    },
+                    scales: { 
+                        x: { display: false, grid: { display:false } }, 
+                        y: { grid: { display: false }, border: {display:false}, ticks: { font: { size: isMobile ? 10 : 12 } } } 
+                    }
+                }
+            });
+
+            const cityCtx = document.getElementById('chart-cities').getContext('2d');
+            cityChart = new Chart(cityCtx, {
+                type: 'bar',
+                data: { labels: [], datasets: [{ data: [], customVolumes: [], backgroundColor: chartColors, borderRadius: 6 }] },
+                options: { 
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false, 
+                    layout: { padding: { right: isMobile ? 80 : 120 } },
+                    plugins: { 
+                        legend: { display: false },
+                        datalabels: {
+                            color: '#ffffff',
+                            anchor: 'end', align: 'end', offset: 6,
+                            font: { size: isMobile ? 9 : 10, weight: 'bold' },
+                            textShadowColor: 'rgba(0,0,0,0.7)', textShadowBlur: 4,
+                            formatter: (val, ctx) => {
+                                const vol = ctx.dataset.customVolumes[ctx.dataIndex];
+                                if (isMobile) return `${Math.round(val).toLocaleString('pt-BR')} | ${vol}`;
+                                return `${fR(val)} | ${vol}`;
+                            }
+                        }
+                    },
+                    scales: { 
+                        x: { display: false, grid: { display:false } }, 
+                        y: { grid: { display: false }, border:{display:false}, ticks: { font: { size: isMobile ? 10 : 12 } } } 
+                    }
+                }
+            });
+
+            const actCtx = document.getElementById('chart-activities').getContext('2d');
+            actChart = new Chart(actCtx, {
+                type: 'doughnut',
+                data: { labels: [], datasets: [{ data: [], backgroundColor: chartColors, borderWidth: 0, hoverOffset: 4 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '75%',
+                    plugins: { 
+                        legend: { position: 'right', labels: { boxWidth: 10, usePointStyle: true, padding: 15 } },
+                        datalabels: { display: false }
+                    }
+                }
+            });
+
+            const timeCtx = document.getElementById('chart-timeline').getContext('2d');
+            let gradient = timeCtx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(16, 185, 129, 0.5)');
+            gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+            timeChart = new Chart(timeCtx, {
+                type: 'line',
+                data: { labels: [], datasets: [{ data: [], borderColor: '#10b981', backgroundColor: gradient, fill: true, tension: 0.4, pointRadius: 3 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    layout: { padding: { top: 35, left: 15, right: 15 } },
+                    plugins: { 
+                        legend: { display: false },
+                        datalabels: {
+                            align: 'top', 
+                            anchor: 'end', 
+                            offset: (ctx) => ctx.dataIndex % 2 === 0 ? 4 : 16,
+                            color: 'rgba(255,255,255,0.9)',
+                            font: { size: 10, weight: '600' },
+                            formatter: (val) => val > 0 ? Math.round(val).toLocaleString('pt-BR') : ''
+                        }
+                    },
+                    scales: { x: { grid: { display: false }, border:{display:false} }, y: { display: false, grid: { display: false } } }
+                }
+            });
+        }
+
+        initCharts();
+
+        // Format currency
+        const fR = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+
+        // File Inputs logic
+        function setupFileInput(inputId, textId) {
+            const input = document.getElementById(inputId);
+            const text = document.getElementById(textId);
+            const dropArea = input.parentElement.querySelector('.file-drop-area');
+
+            input.addEventListener('change', (e) => {
+                if(e.target.files.length > 0) {
+                    // Update hidden span for logical backward compatibility if needed
+                    if(text && text.querySelector('span')) text.querySelector('span').innerText = e.target.files[0].name;
+                    
+                    // Update UI labels and icons
+                    const label = input.parentElement.querySelector(`[id^="${inputId.split('_')[0]}-filename-label"]`);
+                    const icon = input.parentElement.querySelector(`[id^="${inputId.split('_')[0]}-filename-icon"]`);
+                    
+                    if(label) {
+                        label.innerText = e.target.files[0].name;
+                        label.classList.remove('text-white/40');
+                        label.classList.add('text-white/80', 'font-medium');
+                    }
+                    if(icon) {
+                        icon.classList.remove('opacity-0');
+                    }
+                    
+                    dropArea.classList.add('border-emerald-500/30', 'bg-emerald-500/5');
+                }
+            });
+
+            input.addEventListener('dragenter', () => dropArea.classList.add('dragover'));
+            input.addEventListener('dragleave', () => dropArea.classList.remove('dragover'));
+            input.addEventListener('drop', () => dropArea.classList.remove('dragover'));
+        }
+
+        setupFileInput('acerta_file', 'acerta-filename');
+        setupFileInput('loga_file', 'loga-filename');
+
+        // Processing
+        document.getElementById('btn-process').addEventListener('click', async (e) => {
+            const btn = e.currentTarget;
+            const acerta = document.getElementById('acerta_file').files[0];
+            const loga = document.getElementById('loga_file').files[0];
+
+            if(!acerta || !loga) {
+                alert("Por favor, selecione os arquvios Acerta e Loga.");
+                return;
+            }
+
+            // UI Loading logic
+            btn.querySelector('.btn-text').classList.add('hidden');
+            btn.querySelector('.loading-spinner').classList.remove('hidden');
+            btn.classList.add('opacity-80', 'pointer-events-none');
+
+            const formData = new FormData();
+            formData.append('acerta_file', acerta);
+            formData.append('loga_file', loga);
+
+            try {
+                const response = await fetch('/process/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if(response.ok) {
+                    // Update Metrics
+                    document.getElementById('val-ordens').innerText = data.metrics.total_orders;
+                    document.getElementById('val-total').innerText = fR(data.metrics.total_revenue);
+                    document.getElementById('val-projecao').innerText = fR(data.metrics.projection);
+                    document.getElementById('val-techs').innerText = data.metrics.active_techs;
+                    document.getElementById('pie-total').innerText = data.metrics.total_orders;
+
+                    // Progress Bars Logic
+                    if(data.metrics.total_orders > 0) {
+                        const pct_ordens = (data.metrics.completed_orders / data.metrics.total_orders) * 100;
+                        document.getElementById('ordens-progress-bar').classList.remove('hidden');
+                        document.getElementById('ordens-stats').classList.remove('hidden');
+                        document.getElementById('ordens-stats').classList.add('flex');
+                        setTimeout(() => document.getElementById('ordens-progress-fill').style.width = `${pct_ordens}%`, 100);
+                        document.getElementById('val-ordens-conc').innerText = `${data.metrics.completed_orders} Conc.`;
+                        document.getElementById('val-ordens-pend').innerText = `${data.metrics.pending_orders} Pend.`;
+
+                        const pct_revenue = (data.metrics.completed_revenue / data.metrics.total_revenue) * 100;
+                        document.getElementById('revenue-progress-bar').classList.remove('hidden');
+                        document.getElementById('revenue-stats').classList.remove('hidden');
+                        document.getElementById('revenue-stats').classList.add('flex');
+                        setTimeout(() => document.getElementById('revenue-progress-fill').style.width = `${pct_revenue}%`, 100);
+                        document.getElementById('val-total-conc').innerText = `${fR(data.metrics.completed_revenue)} Conc.`;
+                        document.getElementById('val-total-pend').innerText = `${fR(data.metrics.pending_revenue)} Pend.`;
+                    }
+
+                    // Update Tech Chart
+                    techChart.data.labels = data.tech_distribution.labels.map(l => l.substring(0, 15));
+                    techChart.data.datasets[0].data = data.tech_distribution.values;
+                    techChart.data.datasets[0].customVolumes = data.tech_distribution.volumes;
+                    techChart.update();
+
+                    // Update City Chart
+                    cityChart.data.labels = data.city_distribution.labels;
+                    cityChart.data.datasets[0].data = data.city_distribution.values;
+                    cityChart.data.datasets[0].customVolumes = data.city_distribution.volumes;
+                    cityChart.update();
+
+                    // Update Act Chart globally
+                    window.activityData = data.activity_distribution;
+                    const filter = document.getElementById('activity-filter').value;
+                    updateActivityChart(filter);
+
+                    // Update Timeline
+                    timeChart.data.labels = data.timeline.map(t => t.hour);
+                    timeChart.data.datasets[0].data = data.timeline.map(t => t.valor);
+                    timeChart.update();
+
+                    // Update Fila Table
+                    const tbody = document.getElementById('fila-body');
+                    tbody.innerHTML = '';
+                    data.fila.forEach(row => {
+                        tbody.innerHTML += `
+                            <tr class="hover:bg-white/5 transition-colors">
+                                <td class="py-2"><span class="text-xs text-white/50">#</span>${row.OS}</td>
+                                <td class="py-2 max-w-[120px] truncate" title="${row.Técnico}">${row.Técnico}</td>
+                                <td class="py-2">${row.Cidade}</td>
+                                <td class="py-2"><span class="px-2 py-0.5 rounded text-[10px] uppercase font-medium bg-white/10 ${row.Atividade === 'Adesão' ? 'text-orange-400' : 'text-emerald-400'}">${row.Atividade}</span></td>
+                                <td class="py-2 text-right font-medium">${fR(row.Valor)}</td>
+                            </tr>
+                        `;
+                    });
+
+                } else {
+                    alert(data.error || "Erro ao processar dados");
+                }
+            } catch(err) {
+                alert("Erro de conexão ao processar os arquivos.");
+                console.error(err);
+            } finally {
+                // Restore button
+                btn.querySelector('.btn-text').classList.remove('hidden');
+                btn.querySelector('.loading-spinner').classList.add('hidden');
+                btn.classList.remove('opacity-80', 'pointer-events-none');
+            }
+        });
+
+        // Activity Chart update logic
+        function updateActivityChart(filter) {
+            if(!window.activityData) return;
+            const dist = window.activityData[filter];
+            actChart.data.labels = dist.labels;
+            actChart.data.datasets[0].data = dist.values;
+            actChart.update();
+            
+            // Update total in center
+            document.getElementById('pie-total').innerText = dist.values.reduce((a,b)=>a+b, 0);
+        }
+
+        // Custom Select Logic
+        const selectBtn = document.getElementById('custom-select-btn');
+        const selectMenu = document.getElementById('custom-select-menu');
+        const selectText = document.getElementById('custom-select-text');
+        const selectArrow = document.getElementById('custom-select-arrow');
+        const hiddenFilter = document.getElementById('activity-filter');
+        const customOptions = selectMenu.querySelectorAll('button[data-value]');
+        let isSelectOpen = false;
+
+        function toggleCustomSelect() {
+            isSelectOpen = !isSelectOpen;
+            if(isSelectOpen) {
+                selectMenu.classList.remove('opacity-0', 'pointer-events-none', '-translate-y-2');
+                selectArrow.classList.add('rotate-180');
+                selectBtn.classList.add('border-orange-500/50', 'ring-2', 'ring-orange-500/20');
+            } else {
+                selectMenu.classList.add('opacity-0', 'pointer-events-none', '-translate-y-2');
+                selectArrow.classList.remove('rotate-180');
+                selectBtn.classList.remove('border-orange-500/50', 'ring-2', 'ring-orange-500/20');
+            }
+        }
+
+        selectBtn.addEventListener('click', toggleCustomSelect);
+
+        document.addEventListener('click', (e) => {
+            if(!selectBtn.contains(e.target) && !selectMenu.contains(e.target) && isSelectOpen) toggleCustomSelect();
+        });
+
+        customOptions.forEach(opt => {
+            opt.addEventListener('click', () => {
+                const val = opt.getAttribute('data-value');
+                const text = opt.innerText.trim();
+                
+                selectText.innerText = text;
+                hiddenFilter.value = val;
+                
+                document.getElementById('check-all').classList.replace('opacity-100', 'opacity-0');
+                document.getElementById('check-pend').classList.replace('opacity-100', 'opacity-0');
+                document.getElementById('check-conc').classList.replace('opacity-100', 'opacity-0');
+                document.getElementById('check-' + val).classList.replace('opacity-0', 'opacity-100');
+                
+                toggleCustomSelect();
+                updateActivityChart(val);
+            });
+        });
+    </script>
+</body>
+</html>
